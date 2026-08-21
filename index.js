@@ -1,10 +1,38 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const express = require('express');
+const QRCode = require('qrcode');
 
+const app = express();
+const port = process.env.PORT || 3000;
+let latestQR = '';
+
+// Server Web untuk menampilkan QR Code sebagai Gambar
+app.get('/', async (req, res) => {
+    if (!latestQR) {
+        return res.send('<h2>Bot sudah terhubung atau QR Code sedang dibuat... Refresh halaman ini beberapa saat lagi.</h2>');
+    }
+    try {
+        const qrImage = await QRCode.toDataURL(latestQR);
+        res.send(`
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+                <h2>Scan QR Code Ini di WhatsApp</h2>
+                <img src="${qrImage}" style="width:300px;height:300px;border:2px solid #000;padding:10px;border-radius:10px;"/>
+                <p>Refresh halaman jika QR expired.</p>
+            </div>
+        `);
+    } catch (err) {
+        res.status(500).send('Error membuat QR Image');
+    }
+});
+
+app.listen(port, () => console.log(`Server web jalan di port ${port}`));
+
+// Inisialisasi Gemini AI
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
+// Inisialisasi WhatsApp Client
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -19,11 +47,12 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-    console.log('=== SCAN QR CODE DI BAWAH INI ===');
-    qrcode.generate(qr, { small: true });
+    latestQR = qr;
+    console.log('QR Code baru dibuat! Buka URL Web Service untuk scan.');
 });
 
 client.on('ready', () => {
+    latestQR = '';
     console.log('Bot WhatsApp siap dan sudah terhubung!');
 });
 
@@ -48,3 +77,4 @@ client.on('message', async (msg) => {
 });
 
 client.initialize();
+    
