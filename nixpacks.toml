@@ -1,3 +1,0 @@
-[phases.setup]
-nixPkgs = ["...", "nss", "nspr", "atk", "cups", "dbus", "expat", "fontconfig", "freetype", "gdk-pixbuf", "gtk3", "pango", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "alsa-lib", "mesa"]
-
