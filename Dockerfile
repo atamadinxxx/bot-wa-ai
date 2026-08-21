@@ -1,6 +1,12 @@
-FROM node:18-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-CMD ["npm", "start"]
+{
+  "name": "bot-wa-ai",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}
