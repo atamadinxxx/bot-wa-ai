@@ -1,13 +1,11 @@
 {
-  "name": "bot-wa-baileys",
+  "name": "bot-wa-ai",
   "version": "1.0.0",
-  "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
-    "@whiskeysockets/baileys": "^6.7.8",
-    "pino": "^9.3.2"
+    "whatsapp-web.js": "^1.26.0"
   }
 }
