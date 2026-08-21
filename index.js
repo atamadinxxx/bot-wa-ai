@@ -1,57 +1,28 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const pino = require('pino');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
+});
 
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+client.on('qr', (qr) => { console.log('QR RECEIVED:', qr); });
+client.on('ready', () => { console.log('Bot is ready!'); });
+
+client.on('message', async (msg) => {
+    if (msg.fromMe) return;
+    const text = msg.body.toLowerCase();
     
-    const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        printQRInTerminal: true // Akan muncul di log Railway
-    });
+    // Respon di grup atau pribadi
+    if (text.startsWith('bot ') || !msg.from.includes('@g.us')) {
+        const prompt = text.replace('bot ', '');
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(prompt);
+        await msg.reply(result.response.text());
+    }
+});
 
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) connectToWhatsApp();
-        } else if (connection === 'open') {
-            console.log('Bot WhatsApp sudah terhubung!');
-        }
-    });
-
-    sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
-        const from = msg.key.remoteJid;
-        const isGroup = from.endsWith('@g.us');
-
-        let prompt = '';
-        if (!isGroup) {
-            prompt = text;
-        } else if (text.toLowerCase().startsWith('bot ')) {
-            prompt = text.slice(4).trim();
-        } else {
-            return;
-        }
-
-        if (!prompt) return;
-
-        try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-            const result = await model.generateContent(prompt);
-            await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    });
-}
-
-connectToWhatsApp();
+client.initialize();
