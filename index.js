@@ -54,20 +54,23 @@ client.on('ready', () => {
     console.log('Bot WhatsApp siap dan sudah terhubung!');
 });
 
-client.on('message', async (msg) => {
+// Menggunakan message_create agar membaca pesan masuk maupun pesan yang dikirim sendiri
+client.on('message_create', async (msg) => {
     try {
+        // Abaikan pesan yang merupakan balasan otomatis dari bot sendiri
+        if (msg.fromMe && msg.body.startsWith('[AI]')) return;
+
         const text = (msg.body || '').trim();
         if (!text) return;
 
-        // Cek apakah pesan berasal dari grup (ID pesan grup diakhiri '@g.us')
         const isGroup = msg.from.endsWith('@g.us');
         let prompt = '';
 
         if (!isGroup) {
-            // Jika di Chat Pribadi -> Jawab langsung
+            // Chat Pribadi -> langsung proses teks
             prompt = text;
         } else {
-            // Jika di Grup -> Jawab hanya jika diawali kata "bot" atau ".ai"
+            // Chat Grup -> hanya merespons jika diawali "bot" atau ".ai"
             const lowerText = text.toLowerCase();
             if (lowerText.startsWith('bot ')) {
                 prompt = text.slice(4).trim();
