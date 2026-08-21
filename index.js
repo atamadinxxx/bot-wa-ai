@@ -7,10 +7,10 @@ const app = express();
 const port = process.env.PORT || 3000;
 let latestQR = '';
 
-// Server Web untuk menampilkan QR Code sebagai Gambar
+// Server Web untuk QR Code
 app.get('/', async (req, res) => {
     if (!latestQR) {
-        return res.send('<h2>Bot sudah terhubung atau QR Code sedang dibuat... Refresh halaman ini beberapa saat lagi.</h2>');
+        return res.send('<h2>Bot sudah terhubung atau QR Code sedang dibuat...</h2>');
     }
     try {
         const qrImage = await QRCode.toDataURL(latestQR);
@@ -18,11 +18,10 @@ app.get('/', async (req, res) => {
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
                 <h2>Scan QR Code Ini di WhatsApp</h2>
                 <img src="${qrImage}" style="width:300px;height:300px;border:2px solid #000;padding:10px;border-radius:10px;"/>
-                <p>Refresh halaman jika QR expired.</p>
             </div>
         `);
     } catch (err) {
-        res.status(500).send('Error membuat QR Image');
+        res.status(500).send('Error');
     }
 });
 
@@ -48,7 +47,6 @@ const client = new Client({
 
 client.on('qr', (qr) => {
     latestQR = qr;
-    console.log('QR Code baru dibuat! Buka URL Web Service untuk scan.');
 });
 
 client.on('ready', () => {
@@ -59,22 +57,38 @@ client.on('ready', () => {
 client.on('message', async (msg) => {
     try {
         const chat = await msg.getChat();
+        const text = msg.body.trim();
+        let prompt = '';
 
-        if (chat.isGroup && msg.mentionedIds.includes(client.info.wid._serialized)) {
-            const prompt = msg.body.replace(/@\d+/g, '').trim();
-
-            if (!prompt) {
-                return msg.reply('Halo! Ada yang bisa saya bantu?');
+        // 1. Jika di Chat Pribadi -> Langsung jawab semua pesan
+        if (!chat.isGroup) {
+            prompt = text;
+        } 
+        // 2. Jika di Grup -> Jawab kalau diawali kata "bot", ".ai", atau di-mention
+        else if (chat.isGroup) {
+            const lowerText = text.toLowerCase();
+            if (lowerText.startsWith('bot ')) {
+                prompt = text.slice(4).trim();
+            } else if (lowerText.startsWith('.ai ')) {
+                prompt = text.slice(4).trim();
+            } else if (msg.mentionedIds && msg.mentionedIds.length > 0) {
+                // Alternatif jika tetap ada yang tag/mention
+                prompt = text.replace(/@\d+/g, '').trim();
+            } else {
+                return; // Abaikan pesan grup biasa
             }
-
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-            const result = await model.generateContent(prompt);
-            await msg.reply(result.response.text());
         }
+
+        if (!prompt) return;
+
+        // Panggil AI
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const result = await model.generateContent(prompt);
+        await msg.reply(result.response.text());
+
     } catch (error) {
         console.error('Error:', error);
     }
 });
 
 client.initialize();
-    
