@@ -1,98 +1,57 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const express = require('express');
-const QRCode = require('qrcode');
+const pino = require('pino');
 
-const app = express();
-const port = process.env.PORT || 8080;
-let latestQR = '';
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Server Web untuk QR Code
-app.get('/', async (req, res) => {
-    if (!latestQR) {
-        return res.send('<h2>Bot sudah terhubung atau QR Code sedang dibuat...</h2>');
-    }
-    try {
-        const qrImage = await QRCode.toDataURL(latestQR);
-        res.send(`
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
-                <h2>Scan QR Code Ini di WhatsApp</h2>
-                <img src="${qrImage}" style="width:300px;height:300px;border:2px solid #000;padding:10px;border-radius:10px;"/>
-            </div>
-        `);
-    } catch (err) {
-        res.status(500).send('Error');
-    }
-});
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
+    const sock = makeWASocket({
+        logger: pino({ level: 'silent' }),
+        auth: state,
+        printQRInTerminal: true // Akan muncul di log Railway
+    });
 
-app.listen(port, () => console.log(`Server web jalan di port ${port}`));
+    sock.ev.on('creds.update', saveCreds);
 
-// Inisialisasi Gemini AI
-const apiKey = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey);
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) connectToWhatsApp();
+        } else if (connection === 'open') {
+            console.log('Bot WhatsApp sudah terhubung!');
+        }
+    });
 
-// Inisialisasi WhatsApp Client
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-gpu'
-        ],
-    }
-});
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
-client.on('qr', (qr) => {
-    latestQR = qr;
-});
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+        const from = msg.key.remoteJid;
+        const isGroup = from.endsWith('@g.us');
 
-client.on('ready', () => {
-    latestQR = '';
-    console.log('Bot WhatsApp siap dan sudah terhubung!');
-});
-
-// Menggunakan message_create agar membaca pesan masuk maupun pesan yang dikirim sendiri
-client.on('message_create', async (msg) => {
-    try {
-        // Abaikan pesan yang merupakan balasan otomatis dari bot sendiri
-        if (msg.fromMe && msg.body.startsWith('[AI]')) return;
-
-        const text = (msg.body || '').trim();
-        if (!text) return;
-
-        const isGroup = msg.from.endsWith('@g.us');
         let prompt = '';
-
         if (!isGroup) {
-            // Chat Pribadi -> langsung proses teks
             prompt = text;
+        } else if (text.toLowerCase().startsWith('bot ')) {
+            prompt = text.slice(4).trim();
         } else {
-            // Chat Grup -> hanya merespons jika diawali "bot" atau ".ai"
-            const lowerText = text.toLowerCase();
-            if (lowerText.startsWith('bot ')) {
-                prompt = text.slice(4).trim();
-            } else if (lowerText.startsWith('.ai ')) {
-                prompt = text.slice(4).trim();
-            } else {
-                return;
-            }
+            return;
         }
 
         if (!prompt) return;
 
-        // Panggil Gemini AI
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const result = await model.generateContent(prompt);
-        
-        // Balas pesan
-        await msg.reply(result.response.text());
+        try {
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+            const result = await model.generateContent(prompt);
+            await sock.sendMessage(from, { text: result.response.text() }, { quoted: msg });
+        } catch (error) {
+            console.error('Error:', error);
+        }
+    });
+}
 
-    } catch (error) {
-        console.error('Error saat merespons:', error);
-    }
-});
-
-client.initialize();
+connectToWhatsApp();
