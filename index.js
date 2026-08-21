@@ -4,7 +4,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 let latestQR = '';
 
 // Server Web untuk QR Code
@@ -56,38 +56,39 @@ client.on('ready', () => {
 
 client.on('message', async (msg) => {
     try {
-        const chat = await msg.getChat();
-        const text = msg.body.trim();
+        const text = (msg.body || '').trim();
+        if (!text) return;
+
+        // Cek apakah pesan berasal dari grup (ID pesan grup diakhiri '@g.us')
+        const isGroup = msg.from.endsWith('@g.us');
         let prompt = '';
 
-        // 1. Jika di Chat Pribadi -> Langsung jawab semua pesan
-        if (!chat.isGroup) {
+        if (!isGroup) {
+            // Jika di Chat Pribadi -> Jawab langsung
             prompt = text;
-        } 
-        // 2. Jika di Grup -> Jawab kalau diawali kata "bot", ".ai", atau di-mention
-        else if (chat.isGroup) {
+        } else {
+            // Jika di Grup -> Jawab hanya jika diawali kata "bot" atau ".ai"
             const lowerText = text.toLowerCase();
             if (lowerText.startsWith('bot ')) {
                 prompt = text.slice(4).trim();
             } else if (lowerText.startsWith('.ai ')) {
                 prompt = text.slice(4).trim();
-            } else if (msg.mentionedIds && msg.mentionedIds.length > 0) {
-                // Alternatif jika tetap ada yang tag/mention
-                prompt = text.replace(/@\d+/g, '').trim();
             } else {
-                return; // Abaikan pesan grup biasa
+                return;
             }
         }
 
         if (!prompt) return;
 
-        // Panggil AI
+        // Panggil Gemini AI
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         const result = await model.generateContent(prompt);
+        
+        // Balas pesan
         await msg.reply(result.response.text());
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error saat merespons:', error);
     }
 });
 
